@@ -1,0 +1,107 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#
+# Wrapper for url/share handling.
+#set -o xtrace
+set -o errexit
+set -o nounset
+
+setup() {
+	readonly fmt_bold="\033[1m"; 
+	readonly fmt_normal="\033[0m"; 
+	readonly fmt_red="\e[31m"; 
+
+	ytd_check_deps
+
+	readonly url="${1:?Error: first arg should be URL}";
+	readonly ytd_mp3_sessionid=$(echo "${url}" | md5sum | cut -d ' ' -f1); 
+
+	msg_notify "Preparing to download" "${url}";
+	source $(realpath `dirname $0`)"/ytd-mp3.config"; 
+
+#	grep -cx "$url" ~/urls.txt > /dev/null
+#	[ $? -ne 1 ] && echo "Err: url already exists in urls.txt" && exit 1
+}
+
+main() {
+	if [[ "${url}" == *"https://youtu.be/"* || "${url}" == *"https://www.youtube.com/"* ]]; then
+		dl_from_youtube "${url}"; 
+
+	else
+		echo "Appending to ~/urls.txt"
+		echo "$url" >> ~/urls.txt
+	fi
+}
+
+
+dl_from_youtube() {
+	echo "Downloading audio with youtube-dl"
+
+	# This line is necessary to fix env path for python
+#	termux-fix-shebang > /dev/null
+
+	local _postproc_args="";
+	local _output_template="${ytd_mp3_dir}/%(title)s-%(id)s.%(ext)s";
+	local _dst_path=$(youtube-dl --simulate --get-filename --output "${_output_template}" "${url}");
+	_dst_path="${_dst_path%.*}.mp3";
+	local _dst_file=$(basename "${_dst_path}");
+
+	echo -e "Filename: ${fmt_bold}${_dst_file}${fmt_normal}";
+
+	if [ -e "${_dst_path/\\\/}" ]; then
+		echo -e "${fmt_red}ERROR:${fmt_normal} ${_dst_path} already exists. Skipping...";
+		msg_toast "ERROR: ${_dst_file} already exists. Skipping"; 
+		msg_notify "ERROR" "${_dst_file} already exists"; 
+		exit 1;
+	else
+		msg_toast "Starting download for ${_dst_file}"
+		msg_notify "Downloading" "${_dst_file}" ;
+	fi;
+
+	# Setup id3 override tags if specified
+	[ ! -z "${ytd_mp3_artist:-}" ] && _postproc_args="${_postproc_args} \
+					 -metadata artist='${ytd_mp3_artist}'";
+	[ ! -z "${ytd_mp3_album:-}" ] && _postproc_args="${_postproc_args} \
+					-metadata album='${ytd_mp3_album}'";
+
+	youtube-dl -c -x --verbose \
+		--audio-format mp3 \
+		--output "${_output_template}" \
+		--postprocessor-args="${_postproc_args}" \
+		"${url}";
+
+
+	echo "Finished downloading ${_dst_file}"; 
+	msg_toast "Finished downloading ${_dst_file}"; 
+	msg_notify "Finished downloading" "${_dst_file}"; 
+}
+msg_toast() {
+	local _message="$*";
+	if [ `which termux-toast` ]; then
+		termux-toast  "${_message}";
+	fi
+}
+
+msg_notify() {
+	local _title="Youtube DL: $1"; 
+	local _message="$2"; 
+	
+	if [ `which termux-notification` ]; then
+		termux-notification --title "${_title}" --id "${ytd_mp3_sessionid}" --content "${_message}"; 
+	fi
+}
+
+ytd_missing_dep() {
+	local _message="$*"; 
+	echo -e "${fmt_red}ERROR: Missing required dependencies.${fmt_normal}"; 
+	echo "$_message"; 
+	exit 1;
+}
+
+# Verify dependancies for youtube downloading.  Need youtube-dl and ffmpeg
+ytd_check_deps() {
+	[ `which youtube-dl` ] || ytd_missing_dep "youtube-dl not found, please install it first"; 
+	[ `which ffmpeg` ] || ytd_missing_dep "ffmpeg not found, please install it first" ; 
+}
+
+setup "$@"
+main "$@"

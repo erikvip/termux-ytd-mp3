@@ -1,0 +1,6 @@
+#!/bin/bash
+termux-fix-shebang > /dev/null
+turl_session="turl-$(echo "$*" | md5sum | cut -d' ' -f1)"; 
+echo "Starting new turl session ${turl_session}"; 
+echo "Command  will run in tmux";
+tmux new -d -s ${turl_session} "${HOME}/bin/ytd-mp3 $*"
